@@ -1,0 +1,39 @@
+services:
+  hr-zookeeper-new:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: hr-zookeeper-new
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  hr-kafka-new:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: hr-kafka-new
+    depends_on:
+      - hr-zookeeper-new
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: hr-zookeeper-new:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  hr-postgres-new:
+    image: postgres:15
+    container_name: hr-postgres-new
+    environment:
+      POSTGRES_DB: hrdb
+      POSTGRES_USER: hr_user
+      POSTGRES_PASSWORD: hr_pass
+    ports:
+      - "5433:5432"  # Different port to avoid conflict
+    volumes:
+      - postgres_data_new:/var/lib/postgresql/data
+
+volumes:
+  postgres_data_new:

@@ -1,0 +1,355 @@
+services:
+  # =============================================================================
+  # DATABASE LAYER
+  # =============================================================================
+  postgres:
+    image: postgres:15
+    container_name: hr-analytics-project-postgres-1
+    environment:
+      POSTGRES_DB: hrdb
+      POSTGRES_USER: hr_user
+      POSTGRES_PASSWORD: hr_pass
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hr_user -d hrdb"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # STREAMING LAYER (Kafka Ecosystem)
+  # =============================================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: hr-analytics-project-zookeeper-1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+    ports:
+      - "2181:2181"
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost 2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: hr-analytics-project-kafka-1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      
+      # CRITICAL FIX: Proper listener configuration for container networking
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      
+      # Topic configurations
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      
+      # Performance tuning
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      
+      # Auto-create topics
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka-connect:
+    image: debezium/connect:2.4
+    container_name: hr-analytics-project-kafka-connect-1
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      # CRITICAL FIX: Use kafka hostname, not localhost
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: hr-analytics-connect-cluster
+      
+      # Internal topic configurations
+      CONFIG_STORAGE_TOPIC: hr-analytics-connect-configs
+      OFFSET_STORAGE_TOPIC: hr-analytics-connect-offsets
+      STATUS_STORAGE_TOPIC: hr-analytics-connect-status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      
+      # Connect-specific configurations
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: hr-analytics-connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: hr-analytics-connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: hr-analytics-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: hr-analytics-connect-status
+      
+      # Serialization
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: false
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: false
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      
+      # Plugin and performance settings
+      CONNECT_PLUGIN_PATH: /kafka/connect
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_OFFSET_FLUSH_TIMEOUT_MS: 5000
+      CONNECT_TASK_SHUTDOWN_GRACEFUL_TIMEOUT_MS: 10000
+      
+      # Security
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # =============================================================================
+  # PROCESSING LAYER
+  # =============================================================================
+  spark:
+    image: bitnami/spark:3.5
+    container_name: hr-analytics-project-spark-1
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_USER=spark
+    ports:
+      - "8080:8080"   # Spark Master Web UI
+      - "7077:7077"   # Spark Master port
+      - "4040:4040"   # Spark Application Web UI
+    volumes:
+      - ./scripts:/opt/bitnami/spark/scripts
+      - ./data:/opt/bitnami/spark/data
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # ORCHESTRATION LAYER  
+  # =============================================================================
+  airflow-scheduler:
+    image: apache/airflow:2.8.1
+    container_name: hr-analytics-project-airflow-scheduler-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://hr_user:hr_pass@postgres/hrdb
+      AIRFLOW__CORE__FERNET_KEY: 'your-fernet-key-here-32-chars-long-12345='
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: true
+      AIRFLOW__CORE__LOAD_EXAMPLES: false
+      AIRFLOW__WEBSERVER__DEFAULT_USER_USERNAME: admin
+      AIRFLOW__WEBSERVER__DEFAULT_USER_PASSWORD: admin
+      AIRFLOW_UID: 50000
+      AIRFLOW__CORE__ENABLE_XCOM_PICKLING: true
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./scripts:/opt/airflow/scripts
+    command: scheduler
+    networks:
+      - default
+    restart: unless-stopped
+
+  airflow-webserver:
+    image: apache/airflow:2.8.1
+    container_name: hr-analytics-project-airflow-webserver-1
+    depends_on:
+      - airflow-scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://hr_user:hr_pass@postgres/hrdb
+      AIRFLOW__CORE__FERNET_KEY: 'your-fernet-key-here-32-chars-long-12345='
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: true
+      AIRFLOW__CORE__LOAD_EXAMPLES: false
+      AIRFLOW__WEBSERVER__DEFAULT_USER_USERNAME: admin
+      AIRFLOW__WEBSERVER__DEFAULT_USER_PASSWORD: admin
+      AIRFLOW_UID: 50000
+      AIRFLOW__CORE__ENABLE_XCOM_PICKLING: true
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./scripts:/opt/airflow/scripts
+    ports:
+      - "8090:8080"  # Changed from 8080 to 8090 to avoid conflict with Spark
+    command: webserver
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # VISUALIZATION LAYER
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: hr-analytics-project-grafana-1
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # STORAGE LAYER
+  # =============================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: hr-analytics-project-minio-1
+    ports:
+      - "9000:9000"   # API port
+      - "9001:9001"   # Console port
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_DEFAULT_BUCKETS: hr-analytics-data,hr-analytics-logs,hr-analytics-models
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # OPTIONAL: Schema Registry (for Avro serialization)
+  # =============================================================================
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    container_name: hr-analytics-project-schema-registry-1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # OPTIONAL: Kafka UI for management
+  # =============================================================================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: hr-analytics-project-kafka-ui-1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8082:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: hr-analytics-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: hr-connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+    networks:
+      - default
+    restart: unless-stopped
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  kafka_data:
+    driver: local
+  grafana_data:
+    driver: local
+  minio_data:
+    driver: local
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  default:
+    name: hr-analytics-project_default
+    driver: bridge

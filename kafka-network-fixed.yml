@@ -1,0 +1,70 @@
+version: '3.8'
+
+networks:
+  hr_network:
+    driver: bridge
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: hr-zookeeper-fixed
+    networks:
+      - hr_network
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SERVER_ID: 1
+    ports:
+      - "2181:2181"
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: hr-kafka-fixed
+    depends_on:
+      - zookeeper
+    networks:
+      - hr_network
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: hr-zookeeper-fixed:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://hr-kafka-fixed:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    container_name: hr-postgres-fixed
+    networks:
+      - hr_network
+    environment:
+      POSTGRES_DB: hrdb
+      POSTGRES_USER: hr_user
+      POSTGRES_PASSWORD: hr_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # Python service for Kafka producer
+  kafka-producer:
+    image: python:3.11
+    container_name: hr-kafka-producer
+    networks:
+      - hr_network
+    depends_on:
+      - kafka
+      - postgres
+    volumes:
+      - ./:/app
+    working_dir: /app
+    command: tail -f /dev/null  # Keep container running
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

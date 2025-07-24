@@ -1,0 +1,204 @@
+networks:
+  hr_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  zookeeper_data:
+  zookeeper_logs:
+  kafka_data:
+  kafka_connect_data:
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: hr-postgres
+    environment:
+      POSTGRES_DB: hrdb
+      POSTGRES_USER: hr_user
+      POSTGRES_PASSWORD: hr_pass
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - hr_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: hr-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_SERVERS: "hr-zookeeper:2888:3888"
+      ZOOKEEPER_HEAP_OPTS: "-Xmx512m -Xms512m"
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "*"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    ports:
+      - "2181:2181"
+      - "2888:2888"
+      - "3888:3888"
+    networks:
+      - hr_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: hr-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "hr-zookeeper:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://hr-kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    networks:
+      - hr_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    container_name: hr-schema-registry
+    depends_on:
+      - kafka
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "hr-kafka:29092"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: INFO
+    ports:
+      - "8081:8081"
+    networks:
+      - hr_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.4.0
+    container_name: hr-kafka-connect
+    depends_on:
+      - kafka
+      - schema-registry
+      - postgres
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: "hr-kafka:29092"
+      CONNECT_REST_ADVERTISED_HOST_NAME: hr-kafka-connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: hr-connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: hr-connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: hr-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: hr-connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: "http://hr-schema-registry:8081"
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      CONNECT_LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR"
+      # Debezium connector for PostgreSQL
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
+    volumes:
+      - kafka_connect_data:/tmp/connect-data
+    ports:
+      - "8083:8083"
+    networks:
+      - hr_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    command:
+      - bash
+      - -c
+      - |
+        # Install Debezium PostgreSQL connector
+        confluent-hub install --no-prompt debezium/debezium-connector-postgresql:2.4.0
+        # Start Kafka Connect
+        /etc/confluent/docker/run
+
+  ksqldb-server:
+    image: confluentinc/cp-ksqldb-server:7.4.0
+    container_name: hr-ksqldb-server
+    depends_on:
+      - kafka
+      - schema-registry
+    environment:
+      KSQL_CONFIG_DIR: "/etc/ksql"
+      KSQL_BOOTSTRAP_SERVERS: "hr-kafka:29092"
+      KSQL_HOST_NAME: hr-ksqldb-server
+      KSQL_LISTENERS: "http://0.0.0.0:8088"
+      KSQL_CACHE_MAX_BYTES_BUFFERING: 0
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://hr-schema-registry:8081"
+      KSQL_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      KSQL_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+      KSQL_KSQL_CONNECT_URL: "http://hr-kafka-connect:8083"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+    ports:
+      - "8088:8088"
+    networks:
+      - hr_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  ksqldb-cli:
+    image: confluentinc/cp-ksqldb-cli:7.4.0
+    container_name: hr-ksqldb-cli
+    depends_on:
+      - ksqldb-server
+    entrypoint: /bin/sh
+    tty: true
+    networks:
+      - hr_network

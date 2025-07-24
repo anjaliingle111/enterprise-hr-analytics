@@ -1,0 +1,14 @@
+﻿{
+  "name": "hr-analytics-connector", 
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "hr_user", 
+    "database.password": "hr_pass",
+    "database.dbname": "hrdb",
+    "database.server.name": "hr-analytics",
+    "table.include.list": "public.employees,public.companies,public.departments,public.payroll_runs",
+    "plugin.name": "pgoutput"
+  }
+}

@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise HR Analytics Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            overflow-x: hidden;
+        }
+        
+        .dashboard-header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo-section h1 {
+            font-size: 2.5em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 5px;
+        }
+        
+        .logo-section p {
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            background: #4CAF50;
+            color: white;
+            border-radius: 25px;
+            font-weight: 600;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background: white;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        
+        .metric-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+        }
+        
+        .metric-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .metric-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-right: 15px;
+        }
+        
+        .payroll-icon { background: linear-gradient(135deg, #4CAF50, #45a049); }
+        .growth-icon { background: linear-gradient(135deg, #2196F3, #1976D2); }
+        .executives-icon { background: linear-gradient(135deg, #FF9800, #F57C00); }
+        .trend-icon { background: linear-gradient(135deg, #9C27B0, #7B1FA2); }
+        
+        .metric-title {
+            font-size: 1.1em;
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: 700;
+            color: #333;
+            margin: 10px 0;
+        }
+        
+        .metric-change {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.95em;
+            font-weight: 600;
+        }
+        
+        .positive { color: #4CAF50; }
+        .negative { color: #f44336; }
+        
+        .charts-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .chart-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .chart-title {
+            font-size: 1.4em;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .executives-table {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            margin-bottom: 30px;
+        }
+        
+        .table-title {
+            font-size: 1.6em;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .executive-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95em;
+        }
+        
+        .executive-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            border-radius: 8px 8px 0 0;
+        }
+        
+        .executive-table td {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .executive-table tr:hover {
+            background: rgba(102, 126, 234, 0.1);
+        }
+        
+        .salary-amount {
+            font-weight: 700;
+            color: #4CAF50;
+        }
+        
+        .update-timestamp {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.9em;
+            backdrop-filter: blur(10px);
+        }
+        
+        @media (max-width: 768px) {
+            .charts-section {
+                grid-template-columns: 1fr;
+            }
+            
+            .header-content {
+                flex-direction: column;
+                gap: 20px;
+                text-align: center;
+            }
+            
+            .metric-value {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-header">
+        <div class="header-content">
+            <div class="logo-section">
+                <h1>🏢 Enterprise HR Analytics</h1>
+                <p>Real-time Executive Compensation Intelligence</p>
+            </div>
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                <span>LIVE STREAMING</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-container">
+        <!-- Key Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon payroll-icon">💰</div>
+                    <div class="metric-title">Total Executive Payroll</div>
+                </div>
+                <div class="metric-value" id="totalPayroll">$2,775,000</div>
+                <div class="metric-change positive">
+                    <span>↗</span>
+                    <span id="payrollChange">+8.7% this quarter</span>
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon growth-icon">📈</div>
+                    <div class="metric-title">Average Salary Increase</div>
+                </div>
+                <div class="metric-value" id="avgIncrease">9.2%</div>
+                <div class="metric-change positive">
+                    <span>↗</span>
+                    <span id="increaseChange">Above market average</span>
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon executives-icon">👥</div>
+                    <div class="metric-title">Active Executives</div>
+                </div>
+                <div class="metric-value" id="totalExecs">15</div>
+                <div class="metric-change positive">
+                    <span>↗</span>
+                    <span id="execChange">100% retention rate</span>
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-header">
+                    <div class="metric-icon trend-icon">🚀</div>
+                    <div class="metric-title">Market Trend</div>
+                </div>
+                <div class="metric-value" id="marketTrend">Aggressive</div>
+                <div class="metric-change positive">
+                    <span>↗</span>
+                    <span id="trendChange">Growth mode active</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="charts-section">
+            <div class="chart-container">
+                <div class="chart-title">📊 Salary Distribution by Company</div>
+                <canvas id="salaryChart" width="400" height="200"></canvas>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-title">📈 Compensation Trends (Last 6 Months)</div>
+                <canvas id="trendChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- Executive Table -->
+        <div class="executives-table">
+            <div class="table-title">
+                <span>👑</span>
+                <span>Executive Compensation Overview</span>
+            </div>
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Executive Name</th>
+                        <th>Job Title</th>
+                        <th>Company</th>
+                        <th>Current Salary</th>
+                        <th>Recent Change</th>
+                        <th>Market Position</th>
+                    </tr>
+                </thead>
+                <tbody id="executiveTableBody">
+                    <!-- Dynamic content will be populated here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="update-timestamp" id="lastUpdate">
+        Last Updated: <span id="timestamp"></span>
+    </div>
+
+    <script>
+        // Sample executive data
+        const executiveData = [
+            { name: 'Sarah Chen', title: 'Senior Software Engineer', company: 'Asia Pacific Holdings', salary: 295000, change: '+9.4%', position: 'Above Market' },
+            { name: 'Lisa Wang', title: 'Data Scientist', company: 'India Software Services', salary: 275000, change: '+8.7%', position: 'Competitive' },
+            { name: 'Mike Johnson', title: 'Product Manager', company: 'German Innovation GmbH', salary: 255000, change: '+7.2%', position: 'Competitive' },
+            { name: 'Jennifer Miller', title: 'Machine Learning Engineer', company: 'GlobalTech Solutions Inc', salary: 245000, change: '+10.1%', position: 'Above Market' },
+            { name: 'David Smith', title: 'DevOps Director', company: 'GlobalTech Solutions Inc', salary: 205000, change: '+6.8%', position: 'Market Rate' }
+        ];
+
+        // Populate executive table
+        function populateExecutiveTable() {
+            const tbody = document.getElementById('executiveTableBody');
+            tbody.innerHTML = '';
+            
+            executiveData.forEach(exec => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><strong>${exec.name}</strong></td>
+                    <td>${exec.title}</td>
+                    <td>${exec.company}</td>
+                    <td class="salary-amount">$${exec.salary.toLocaleString()}</td>
+                    <td class="positive">${exec.change}</td>
+                    <td>${exec.position}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // Create salary distribution chart
+        function createSalaryChart() {
+            const ctx = document.getElementById('salaryChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['GlobalTech Solutions', 'Asia Pacific Holdings', 'India Software Services', 'German Innovation', 'European Tech Ltd'],
+                    datasets: [{
+                        data: [450000, 295000, 275000, 255000, 185000],
+                        backgroundColor: [
+                            '#4CAF50',
+                            '#2196F3', 
+                            '#FF9800',
+                            '#9C27B0',
+                            '#F44336'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 20,
+                                usePointStyle: true
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Create trend chart
+        function createTrendChart() {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                    datasets: [{
+                        label: 'Average Salary Increase %',
+                        data: [6.2, 7.1, 8.3, 8.9, 9.2, 9.5],
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update metrics with animation
+        function updateMetrics() {
+            const payroll = Math.floor(Math.random() * 500000) + 2500000;
+            const increase = (Math.random() * 5 + 7).toFixed(1);
+            
+            document.getElementById('totalPayroll').textContent = `$${payroll.toLocaleString()}`;
+            document.getElementById('avgIncrease').textContent = `${increase}%`;
+            
+            // Update timestamp
+            document.getElementById('timestamp').textContent = new Date().toLocaleString();
+        }
+
+        // Initialize dashboard
+        function initDashboard() {
+            populateExecutiveTable();
+            createSalaryChart();
+            createTrendChart();
+            updateMetrics();
+            
+            // Update metrics every 30 seconds
+            setInterval(updateMetrics, 30000);
+        }
+
+        // Start dashboard when page loads
+        window.addEventListener('load', initDashboard);
+    </script>
+</body>
+</html>
