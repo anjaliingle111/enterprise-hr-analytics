@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+from flask import Flask, jsonify
+import psycopg2
+from datetime import datetime
+
+app = Flask(__name__)
+
+def get_db():
+    return psycopg2.connect(host='localhost', port=5432, user='hr_user', password='hr_pass', database='hrdb')
+
+@app.route('/')
+def home():
+    return jsonify({
+        "message": "TechCorp Solutions Inc - HR Analytics API",
+        "status": "running",
+        "company": "TechCorp Solutions Inc",
+        "employees": 1000,
+        "departments": 5,
+        "endpoints": ["departments", "company-kpis", "performance", "engagement", "skills", "leave"]
+    })
+
+@app.route('/api/techcorp/departments')
+def departments():
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT c.company_name, c.parent_company, COUNT(e.employee_id), 
+                   CAST(AVG(e.current_salary) AS INTEGER), CAST(SUM(e.current_salary) AS INTEGER),
+                   COUNT(CASE WHEN e.current_salary > 200000 THEN 1 END)
+            FROM employees e JOIN companies c ON e.company_id = c.company_id
+            WHERE e.employment_status = 'active'
+            GROUP BY c.company_id, c.company_name, c.parent_company
+            ORDER BY SUM(e.current_salary) DESC
+        """)
+        
+        data = []
+        for row in cursor.fetchall():
+            data.append({
+                'department': row[0],
+                'parent_company': row[1],
+                'employee_count': row[2],
+                'a

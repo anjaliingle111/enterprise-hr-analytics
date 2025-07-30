@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+  
+  - job_name: 'kafka-jmx'
+    static_configs:
+      - targets: ['enterprise-kafka:9092']
+      
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['enterprise-postgres:5432']
+      
+  - job_name: 'platform-health'
+    static_configs:
+      - targets: ['enterprise-grafana:3000']
